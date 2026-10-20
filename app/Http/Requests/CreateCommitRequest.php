@@ -13,6 +13,7 @@ use App\Rules\CommitBodyLength;
 use App\Rules\VisibleCommit;
 use App\Services\CommitBodies;
 use App\Services\Urls;
+use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\UploadedFile;
@@ -21,9 +22,12 @@ use Illuminate\Validation\Rules\Dimensions;
 use Illuminate\Validation\Rules\Enum;
 use Illuminate\Validation\Rules\File;
 use Illuminate\Validation\Rules\In;
+use Illuminate\Validation\Validator;
 
 final class CreateCommitRequest extends FormRequest
 {
+    public const string SOURCE_CHANGED = 'The commit you are answering has been amended. Reload it to see the new text. Your changes were not saved.';
+
     /**
      * Images make text optional. Bound the raw body before parsing links to limit storage and processing costs.
      *
@@ -87,8 +91,25 @@ final class CreateCommitRequest extends FormRequest
         return [
             'body' => self::bodyRules($this->hasFile('images')),
             'quoted_commit_id' => ['nullable', 'uuid', 'prohibits:parent_id', new VisibleCommit($user, 'That commit is no longer available to quote.')],
+            'source_body' => ['sometimes', 'nullable', 'string'],
             'link_preview_url' => ['nullable', 'string', Rule::in(is_string($body) ? resolve(Urls::class)->all($body) : [])],
             ...self::attachmentRules(),
+        ];
+    }
+
+    /**
+     * A quote never shows text its author did not read.
+     *
+     * @return array<int, Closure(Validator): void>
+     */
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                if ($this->has('source_body') && $validator->errors()->isEmpty() && $this->quotedCommit()?->body !== $this->string('source_body')->value()) {
+                    $validator->errors()->add('body', self::SOURCE_CHANGED);
+                }
+            },
         ];
     }
 

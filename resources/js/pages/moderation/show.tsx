@@ -1,6 +1,7 @@
 import { Head, router } from '@inertiajs/react';
 import { Bot, Check, X } from 'lucide-react';
 import { useId, useState } from 'react';
+import { toast } from 'sonner';
 import CommitApprovalController from '@/actions/App/Http/Controllers/CommitApprovalController';
 import CommitRejectionController from '@/actions/App/Http/Controllers/CommitRejectionController';
 import ModerationController from '@/actions/App/Http/Controllers/ModerationController';
@@ -189,10 +190,12 @@ export default function Show({
         setIsModerating(true);
 
         router.visit(route(commit), {
-            data:
-                route === CommitRejectionController.store
+            data: {
+                ...(route === CommitRejectionController.store
                     ? { reason: reason ?? '' }
-                    : {},
+                    : {}),
+                expected_body: commit.body,
+            },
             preserveScroll: true,
             only: ['commits', 'hasUnmoderatedCommits'],
             reset: ['commits'],
@@ -211,11 +214,22 @@ export default function Show({
             onFinish: () => setIsModerating(false),
             onHttpException: (response) => !commitNotFound(commit.id, response),
             onError: (errors) =>
-                onError?.(
-                    errors.reason ??
-                        'Could not moderate this commit. Try again.',
-                ),
+                errors.body
+                    ? showAmendment(errors.body)
+                    : onError?.(
+                          errors.reason ??
+                              'Could not moderate this commit. Try again.',
+                      ),
         });
+    };
+
+    // The author amended a commit after the moderator read it: show the new text, and say nothing was decided.
+    const showAmendment = (message: string) => {
+        router.reload({
+            only: ['commits', 'hasUnmoderatedCommits'],
+            reset: ['commits'],
+        });
+        toast.error(message, { duration: Infinity });
     };
 
     const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
@@ -247,13 +261,21 @@ export default function Show({
 
     const approveSelected = () =>
         router.visit(ModerationController.update(), {
-            data: { commits: selectedIds },
+            data: {
+                commits: selectedIds,
+                bodies: Object.fromEntries(
+                    commits.data
+                        .filter((commit) => selected.has(commit.id))
+                        .map((commit) => [commit.id, commit.body]),
+                ),
+            },
             preserveScroll: true,
             only: ['commits', 'hasUnmoderatedCommits'],
             reset: ['commits'],
             onStart: () => setApproving(true),
             onSuccess: () => setSelected(new Set()),
             onFinish: () => setApproving(false),
+            onError: (errors) => errors.body && showAmendment(errors.body),
         });
 
     return (
@@ -323,6 +345,34 @@ export default function Show({
                 isFolded={false}
                 actions={(commit) => (
                     <>
+                        {commit.revisions && commit.revisions.length > 0 && (
+                            <details
+                                open
+                                className="mt-3 text-sm"
+                                data-test="moderation-amendment-history"
+                            >
+                                <summary className="cursor-pointer font-medium">
+                                    Review amendment history
+                                </summary>
+                                {[...commit.revisions]
+                                    .reverse()
+                                    .map((revision, index) => (
+                                        <div
+                                            key={index}
+                                            className="mt-2 rounded border p-3"
+                                        >
+                                            <p className="text-xs text-muted-foreground">
+                                                {index === 0
+                                                    ? 'Original commit'
+                                                    : 'Previous amendment'}
+                                            </p>
+                                            <p className="mt-1 break-words whitespace-pre-wrap">
+                                                {revision.body}
+                                            </p>
+                                        </div>
+                                    ))}
+                            </details>
+                        )}
                         <AiDecision commit={commit} />
                         <ModerationActions
                             isSelected={selected.has(commit.id)}

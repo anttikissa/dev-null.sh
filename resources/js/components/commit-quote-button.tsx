@@ -113,6 +113,7 @@ function QuoteComposer({
     onClose: () => void;
 }) {
     const { user } = useUser();
+    const sourceBody = useRef(commit.body);
     const markCommitDeleted = useMarkCommitDeleted();
     const id = `quote-${commit.id}`;
     const {
@@ -225,6 +226,11 @@ function QuoteComposer({
                                 type="hidden"
                                 name="quoted_commit_id"
                                 value={commit.id}
+                            />
+                            <input
+                                type="hidden"
+                                name="source_body"
+                                value={sourceBody.current}
                             />
                             <label htmlFor={id} className="sr-only">
                                 Your commit

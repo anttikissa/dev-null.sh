@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 use App\Actions\CreateCommitTranslation;
 use App\Actions\DeleteUser;
+use App\Actions\UpdateCommit;
 use App\Actions\UpdateCommitHotScores;
 use App\Ai\Agents\CommitTranslator;
 use App\Models\Commit;
 use App\Models\CommitImage;
+use App\Models\CommitRevision;
 use App\Models\Device;
 use App\Models\LinkPreview;
 use App\Models\Message;
@@ -97,6 +99,22 @@ it('erases what a deleted user wrote from the tombstones they leave', function (
         ->and($tombstones->pluck('mentions')->all())->toBe([null, null])
         ->and($tombstones->pluck('embedding')->all())->toBe([null, null])
         ->and($tombstones->pluck('link_preview_id')->all())->toBe([null, null]);
+});
+
+it('erases what a deleted user wrote before amending, tombstones included', function (): void {
+    config(['app.admins' => ['taylorotwell']]);
+
+    $user = User::factory()->create(['username' => 'taylorotwell']);
+    $commit = Commit::factory()->for($user)->create();
+    $reply = Commit::factory()->for($user)->for(Commit::factory(), 'parent')->create();
+    Commit::factory()->for($reply, 'parent')->create();
+    resolve(UpdateCommit::class)->handle($commit, 'Amended commit');
+    resolve(UpdateCommit::class)->handle($reply, 'Amended reply');
+
+    resolve(DeleteUser::class)->handle($user);
+
+    expect(CommitRevision::query()->count())->toBe(0)
+        ->and(Commit::withTrashed()->find($reply->id))->amended_at->toBeNull();
 });
 
 it('erases what deleted accounts wrote from the tombstones they already left', function (): void {

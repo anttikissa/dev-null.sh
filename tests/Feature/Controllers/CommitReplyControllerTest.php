@@ -968,3 +968,13 @@ it('lists replies in pages of any size up to 50', function (int $limit, int $sta
     'none' => [0, 422],
     'too many' => [51, 422],
 ]);
+
+it('may not reply to text that was amended after it was read', function (): void {
+    $commit = Commit::factory()->create(['body' => 'Amended']);
+
+    $this->actingAs(User::factory()->create())
+        ->postJson(route('commit-reply.store', $commit), ['body' => 'Agreed', 'source_body' => 'Original'])
+        ->assertJsonValidationErrors(['body' => 'The commit you are answering has been amended. Reload it to see the new text. Your changes were not saved.']);
+
+    expect($commit->replies()->count())->toBe(0);
+});

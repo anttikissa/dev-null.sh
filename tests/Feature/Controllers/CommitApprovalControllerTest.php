@@ -47,3 +47,19 @@ it('may not approve a commit as a non admin', function (): void {
 
     expect($commit->refresh()->status)->toBe(CommitStatus::Pending);
 });
+
+it('may not approve text the author amended after it was read', function (): void {
+    $admin = User::factory()->create(['username' => 'admin']);
+    $commit = Commit::factory()->pending()->create(['body' => 'Amended']);
+
+    $this->actingAs($admin)
+        ->post(route('commit-approval.store', $commit), ['expected_body' => 'Original'])
+        ->assertSessionHasErrors(['body' => 'Not approved: the author amended this commit. Review the new text.']);
+
+    expect($commit->refresh()->status)->toBe(CommitStatus::Pending);
+
+    $this->post(route('commit-approval.store', $commit), ['expected_body' => 'Amended'])
+        ->assertSessionHasNoErrors();
+
+    expect($commit->refresh()->status)->toBe(CommitStatus::Approved);
+});

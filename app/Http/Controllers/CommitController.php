@@ -6,11 +6,13 @@ namespace App\Http\Controllers;
 
 use App\Actions\CreateCommit;
 use App\Actions\DeleteCommit;
+use App\Actions\UpdateCommit;
 use App\Dto\ThreadContinuation;
 use App\Enums\CommitStatus;
 use App\Http\Requests\CreateCommitRequest;
 use App\Http\Requests\DeleteCommitRequest;
 use App\Http\Requests\ShowCommitRequest;
+use App\Http\Requests\UpdateCommitRequest;
 use App\Models\Commit;
 use App\Models\User;
 use App\Queries\CommitAncestorsQuery;
@@ -22,6 +24,7 @@ use App\Services\PageMetadata;
 use Illuminate\Container\Attributes\CurrentUser;
 use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -83,6 +86,24 @@ final readonly class CommitController
             Inertia::flash('toast', [
                 'type' => 'info',
                 'message' => 'Your commit is pending review. Everyone will see it once it is approved.',
+            ]);
+        }
+
+        return back();
+    }
+
+    public function update(UpdateCommitRequest $request, Commit $commit, UpdateCommit $action): RedirectResponse
+    {
+        $commit = $action->handle($commit, $request->string('body')->value());
+
+        Inertia::flash('amended', Arr::only($commit->load('linkPreview')->toArray(), [
+            'id', 'body', 'body_segments', 'preview_segments', 'mentions', 'status', 'is_checking', 'link_preview', 'amended_at',
+        ]));
+
+        if ($commit->status === CommitStatus::Pending) {
+            Inertia::flash('toast', [
+                'type' => 'info',
+                'message' => 'Your amendment is pending review. Everyone will see it once it is approved.',
             ]);
         }
 

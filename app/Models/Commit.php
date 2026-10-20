@@ -38,6 +38,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property-read list<float>|null $embedding
  * @property-read CarbonInterface $created_at
  * @property-read CarbonInterface $updated_at
+ * @property-read CarbonInterface|null $amended_at
  * @property-read CarbonInterface|null $deleted_at
  * @property-read int $stars_count
  * @property-read int $pasteis_count
@@ -54,11 +55,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property-read Commit|null $quotedCommit
  * @property-read Collection<int, Commit> $quotes
  * @property-read Collection<int, CommitImage> $images
+ * @property-read Collection<int, CommitRevision> $revisions
  */
 #[Hidden([
     'ai_decision',
     'ai_categories',
     'embedding',
+    'revisions',
 ])]
 #[UseEloquentBuilder(CommitBuilder::class)]
 final class Commit extends Model
@@ -70,6 +73,14 @@ final class Commit extends Model
     use SoftDeletes;
 
     public const int RESTORABLE_SECONDS = 30;
+
+    /**
+     * Long enough to fix a typo or a broken link, short enough that a commit people already starred keeps meaning what it
+     * said.
+     */
+    public const int AMENDABLE_MINUTES = 15;
+
+    public const int MAX_AMENDMENTS = 5;
 
     /**
      * Moderation retries a failed check twice, the last time ten minutes later, so a pending commit older than this has
@@ -122,6 +133,7 @@ final class Commit extends Model
             'embedding' => AsVector::class,
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
+            'amended_at' => 'datetime',
             'deleted_at' => 'datetime',
         ];
     }
@@ -191,7 +203,7 @@ final class Commit extends Model
         return $this->status === CommitStatus::Pending
             && $this->ai_decision === null
             && filled(config('services.openai.key'))
-            && $this->created_at->greaterThan(now()->subMinutes(self::CHECKING_MINUTES));
+            && ($this->amended_at ?? $this->created_at)->greaterThan(now()->subMinutes(self::CHECKING_MINUTES));
     }
 
     public function isRestorable(): bool
@@ -261,6 +273,14 @@ final class Commit extends Model
     public function images(): HasMany
     {
         return $this->hasMany(CommitImage::class)->orderBy('position');
+    }
+
+    /**
+     * @return HasMany<CommitRevision, $this>
+     */
+    public function revisions(): HasMany
+    {
+        return $this->hasMany(CommitRevision::class)->latest()->orderByDesc('id');
     }
 
     /**

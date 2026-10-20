@@ -27,7 +27,8 @@ final readonly class UpdateCommitAiDecision
     /**
      * Asks the AI whether the commit, images included, should be approved. The decision is mostly a hint for
      * moderators: a clean commit is approved, and it is rejected, without a reason, when the AI is all but certain.
-     * Failures, such as timeouts or rate limits, are thrown, so the caller can try again later.
+     * An amended commit is judged against what it said before, and a decision about text that was amended while the AI
+     * was thinking is dropped. Failures, such as timeouts or rate limits, are thrown, so the caller can try again later.
      */
     public function handle(Commit $commit): void
     {
@@ -39,12 +40,19 @@ final readonly class UpdateCommitAiDecision
 
         $categories = array_keys($scores);
 
-        if ($commit->body !== '' && $this->openAI->isHarmful($commit->body)) {
+        /** @var list<string> $previousBodies */
+        $previousBodies = $commit->revisions()->reorder()->oldest()->pluck('body')->values()->all();
+
+        if ($commit->body !== '' && $this->openAI->isHarmful($commit->body, $previousBodies)) {
             $categories[] = 'harmful-text';
         }
 
         if ($images !== [] && $this->openAI->showsMinors($images)) {
             $categories[] = 'minor-in-image';
+        }
+
+        if ($commit->fresh()?->body !== $commit->body) {
+            return;
         }
 
         $commit->update([
