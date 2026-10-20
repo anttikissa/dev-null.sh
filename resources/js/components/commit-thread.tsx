@@ -16,6 +16,11 @@ import { ActionTooltip } from '@/components/action-tooltip';
 import { BodyCounter } from '@/components/body-counter';
 import { FoldedCommitBody } from '@/components/commit-body';
 import {
+    CommitAmendedLabel,
+    CommitAmendForm,
+    isEditable,
+} from '@/components/commit-edit';
+import {
     ImageDropOverlay,
     ImagePickerButton,
     ImagePickerPreviews,
@@ -950,7 +955,7 @@ function ReplyItem({
 }
 
 function CommitReply({
-    reply,
+    reply: shownReply,
     parent,
     depth,
     links,
@@ -964,6 +969,15 @@ function CommitReply({
     thread: Thread;
     onDeleted: () => void;
 }) {
+    const [amended, setAmended] = useState<{
+        base: string;
+        changes: Partial<Commit>;
+    } | null>(null);
+    const [isAmending, setIsAmending] = useState(false);
+    const reply =
+        amended && amended.base === (shownReply.version ?? shownReply.id)
+            ? { ...shownReply, ...amended.changes }
+            : shownReply;
     const { auth } = usePage().props;
     const now = useNow();
     const { bodyRef, ...translation } = useCommitTranslation(reply);
@@ -1106,6 +1120,18 @@ function CommitReply({
                                 </time>
                             </Link>
                         </TimestampTooltip>
+                        {reply.edited_at && (
+                            <CommitAmendedLabel commit={reply} />
+                        )}
+                        {isOwn && isEditable(reply, now) && !isAmending && (
+                            <button
+                                type="button"
+                                onClick={() => setIsAmending(true)}
+                                className="text-xs text-muted-foreground hover:underline"
+                            >
+                                Amend
+                            </button>
+                        )}
                         <CommitStatusBadge commit={reply} size="small" />
                         {isOwn && (
                             <Tooltip>
@@ -1136,14 +1162,28 @@ function CommitReply({
                         </p>
                     )}
 
-                    <div ref={bodyRef} style={translation.bodyStyle}>
-                        <FoldedCommitBody
-                            segments={translation.segments}
-                            mentions={reply.mentions}
-                            previewSegments={translation.previewSegments}
-                            className="text-[15px]"
+                    {isAmending ? (
+                        <CommitAmendForm
+                            commit={reply}
+                            onCancel={() => setIsAmending(false)}
+                            onAmended={(changes) => {
+                                setAmended({
+                                    base: shownReply.version ?? shownReply.id,
+                                    changes,
+                                });
+                                setIsAmending(false);
+                            }}
                         />
-                    </div>
+                    ) : (
+                        <div ref={bodyRef} style={translation.bodyStyle}>
+                            <FoldedCommitBody
+                                segments={translation.segments}
+                                mentions={reply.mentions}
+                                previewSegments={translation.previewSegments}
+                                className="text-[15px]"
+                            />
+                        </div>
+                    )}
                     {translation.notice}
                     <CommitImages commit={reply} />
                     {reply.link_preview && (
@@ -1215,6 +1255,7 @@ function ReplyComposer({
     onReplied: (parent: RepliedParent) => void;
 }) {
     const { user } = useUser();
+    const sourceVersion = useRef(parent.version ?? parent.id);
     const commitNotFound = useCommitNotFound();
     const {
         body,
@@ -1237,6 +1278,7 @@ function ReplyComposer({
     const request = useHttp<
         {
             body: string;
+            source_version?: string;
             images: File[];
             image_descriptions: string[];
             link_preview_url?: string;
@@ -1304,6 +1346,7 @@ function ReplyComposer({
 
         request.setData(() => ({
             body,
+            source_version: sourceVersion.current,
             images,
             image_descriptions: descriptions,
             ...(linkCard.isChosen

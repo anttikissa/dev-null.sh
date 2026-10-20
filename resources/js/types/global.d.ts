@@ -10,6 +10,7 @@ declare module '@inertiajs/core' {
             committed?: CommittedFlash;
             deleted?: DeletedFlash;
             restored?: Commit;
+            amended?: Partial<Commit> & { id: string };
             scheduled?: boolean;
             localSignIn?: boolean;
             signedUp?: boolean;
