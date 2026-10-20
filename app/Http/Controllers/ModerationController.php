@@ -30,6 +30,7 @@ final readonly class ModerationController
                     'parent.user',
                     'linkPreview',
                     'images',
+                    'revisions',
                     'quotedCommit' => fn (BelongsTo $query): BelongsTo => $query->withTrashed()->with(['user', 'linkPreview', 'images'])->withPollFor($user),
                 ])
                 ->withStarsFor($user)
@@ -60,6 +61,6 @@ final readonly class ModerationController
      */
     private function withAiDecision(Commit $commit): Commit
     {
-        return $commit->makeVisible(['ai_decision', 'ai_categories']);
+        return $commit->makeVisible(['ai_decision', 'ai_categories', 'revisions']);
     }
 }

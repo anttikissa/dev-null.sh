@@ -283,3 +283,17 @@ it('may not approve many commits as a non admin', function (): void {
 
     expect($commit->refresh()->status)->toBe(CommitStatus::Pending);
 });
+
+it('approves nothing when a selected commit was amended after it was read', function (): void {
+    config(['app.admins' => ['admin']]);
+    $admin = User::factory()->create(['username' => 'admin']);
+    $read = Commit::factory()->pending()->create(['body' => 'Read']);
+    $amended = Commit::factory()->pending()->create(['body' => 'Amended']);
+
+    $this->actingAs($admin)
+        ->put(route('moderation.update'), ['commits' => [$read->id, $amended->id], 'bodies' => [$read->id => 'Read', $amended->id => 'Original']])
+        ->assertSessionHasErrors(['body' => 'Nothing approved: the author amended a selected commit. Review the new text.']);
+
+    expect($read->refresh()->status)->toBe(CommitStatus::Pending)
+        ->and($amended->refresh()->status)->toBe(CommitStatus::Pending);
+});

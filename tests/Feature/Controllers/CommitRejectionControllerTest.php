@@ -33,3 +33,14 @@ it('may not reject a commit as a non admin', function (): void {
 
     expect($commit->refresh()->status)->toBe(CommitStatus::Pending);
 });
+
+it('may not reject text the author amended after it was read', function (): void {
+    $admin = User::factory()->create(['username' => 'admin']);
+    $commit = Commit::factory()->pending()->create(['body' => 'Amended']);
+
+    $this->actingAs($admin)
+        ->post(route('commit-rejection.store', $commit), ['expected_body' => 'Original'])
+        ->assertSessionHasErrors(['body' => 'Not rejected: the author amended this commit. Review the new text.']);
+
+    expect($commit->refresh()->status)->toBe(CommitStatus::Pending);
+});

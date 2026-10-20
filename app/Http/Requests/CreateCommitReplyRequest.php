@@ -8,6 +8,7 @@ use App\Actions\CreateCommitImages;
 use App\Models\Commit;
 use App\Models\User;
 use App\Services\Urls;
+use Closure;
 use Illuminate\Auth\Access\Response;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -16,6 +17,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Dimensions;
 use Illuminate\Validation\Rules\File;
 use Illuminate\Validation\Rules\In;
+use Illuminate\Validation\Validator;
 
 final class CreateCommitReplyRequest extends FormRequest
 {
@@ -46,6 +48,7 @@ final class CreateCommitReplyRequest extends FormRequest
 
         return [
             'body' => CreateCommitRequest::bodyRules($this->hasFile('images')),
+            'source_body' => ['sometimes', 'nullable', 'string'],
             'link_preview_url' => ['nullable', 'string', Rule::in(is_string($body) ? resolve(Urls::class)->all($body) : [])],
             'images' => ['nullable', 'list', 'max:'.CreateCommitImages::MAX_IMAGES],
             'images.*' => [
@@ -58,6 +61,25 @@ final class CreateCommitReplyRequest extends FormRequest
             ],
             'image_descriptions' => ['nullable', 'list', 'max:'.CreateCommitImages::MAX_IMAGES],
             'image_descriptions.*' => ['nullable', 'string', 'max:'.CreateCommitImages::MAX_DESCRIPTION_LENGTH],
+        ];
+    }
+
+    /**
+     * A reply never answers text its author did not read.
+     *
+     * @return array<int, Closure(Validator): void>
+     */
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                $commit = $this->route('commit');
+                assert($commit instanceof Commit);
+
+                if ($this->has('source_body') && $this->string('source_body')->value() !== $commit->body) {
+                    $validator->errors()->add('body', CreateCommitRequest::SOURCE_CHANGED);
+                }
+            },
         ];
     }
 

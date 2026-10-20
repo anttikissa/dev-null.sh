@@ -4,6 +4,7 @@ import {
     CornerDownRight,
     ListTree,
     MessageSquareReply,
+    Pencil,
     Trash2,
 } from 'lucide-react';
 import type { CSSProperties, FormEvent, KeyboardEvent, ReactNode } from 'react';
@@ -14,6 +15,11 @@ import CommitLinkPreviewController from '@/actions/App/Http/Controllers/CommitLi
 import CommitReplyController from '@/actions/App/Http/Controllers/CommitReplyController';
 import { ActionTooltip } from '@/components/action-tooltip';
 import { BodyCounter } from '@/components/body-counter';
+import {
+    CommitAmendedLabel,
+    CommitAmendForm,
+    isAmendable,
+} from '@/components/commit-amend';
 import { FoldedCommitBody } from '@/components/commit-body';
 import {
     ImageDropOverlay,
@@ -952,7 +958,7 @@ function ReplyItem({
 }
 
 function CommitReply({
-    reply,
+    reply: shownReply,
     parent,
     depth,
     links,
@@ -966,6 +972,15 @@ function CommitReply({
     thread: Thread;
     onDeleted: () => void;
 }) {
+    const [amended, setAmended] = useState<{
+        base: string;
+        changes: Partial<Commit>;
+    } | null>(null);
+    const [isAmending, setIsAmending] = useState(false);
+    const reply =
+        amended && amended.base === shownReply.body
+            ? { ...shownReply, ...amended.changes }
+            : shownReply;
     const { auth } = usePage().props;
     const now = useNow();
     const { bodyRef, ...translation } = useCommitTranslation(reply);
@@ -1108,7 +1123,33 @@ function CommitReply({
                                 </time>
                             </Link>
                         </TimestampTooltip>
+                        {reply.amended_at && (
+                            <>
+                                <span
+                                    aria-hidden
+                                    className="text-muted-foreground"
+                                >
+                                    ·
+                                </span>
+                                <CommitAmendedLabel commit={reply} />
+                            </>
+                        )}
                         <CommitStatusBadge commit={reply} size="small" />
+                        {isOwn && isAmendable(reply, now) && !isAmending && (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsAmending(true)}
+                                        aria-label="Amend reply"
+                                        className="-my-1 ml-auto shrink-0 self-center rounded-md p-1 text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:opacity-100 sm:opacity-0 sm:reply-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                                    >
+                                        <Pencil className="size-3.5" />
+                                    </button>
+                                </TooltipTrigger>
+                                <TooltipContent>Amend reply</TooltipContent>
+                            </Tooltip>
+                        )}
                         {isOwn && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1116,7 +1157,7 @@ function CommitReply({
                                         type="button"
                                         onClick={() => setIsConfirming(true)}
                                         aria-label="Delete reply"
-                                        className="-my-1 ml-auto shrink-0 self-center rounded-md p-1 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 sm:opacity-0 sm:reply-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                                        className={`-my-1 shrink-0 self-center rounded-md p-1 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 sm:opacity-0 sm:reply-hover:opacity-100 [@media(hover:none)]:opacity-100 ${isAmendable(reply, now) && !isAmending ? '' : 'ml-auto'}`}
                                     >
                                         <Trash2 className="size-3.5" />
                                     </button>
@@ -1138,14 +1179,25 @@ function CommitReply({
                         </p>
                     )}
 
-                    <div ref={bodyRef} style={translation.bodyStyle}>
-                        <FoldedCommitBody
-                            segments={translation.segments}
-                            mentions={reply.mentions}
-                            previewSegments={translation.previewSegments}
-                            className="text-[15px]"
+                    {isAmending ? (
+                        <CommitAmendForm
+                            commit={reply}
+                            onCancel={() => setIsAmending(false)}
+                            onAmended={(changes) => {
+                                setAmended({ base: shownReply.body, changes });
+                                setIsAmending(false);
+                            }}
                         />
-                    </div>
+                    ) : (
+                        <div ref={bodyRef} style={translation.bodyStyle}>
+                            <FoldedCommitBody
+                                segments={translation.segments}
+                                mentions={reply.mentions}
+                                previewSegments={translation.previewSegments}
+                                className="text-[15px]"
+                            />
+                        </div>
+                    )}
                     {translation.notice}
                     <CommitImages commit={reply} />
                     {reply.link_preview && (
@@ -1217,6 +1269,7 @@ function ReplyComposer({
     onReplied: (parent: RepliedParent) => void;
 }) {
     const { user } = useUser();
+    const sourceBody = useRef(parent.body);
     const commitNotFound = useCommitNotFound();
     const {
         body,
@@ -1239,6 +1292,7 @@ function ReplyComposer({
     const request = useHttp<
         {
             body: string;
+            source_body?: string;
             images: File[];
             image_descriptions: string[];
             link_preview_url?: string;
@@ -1309,6 +1363,7 @@ function ReplyComposer({
 
         request.setData(() => ({
             body,
+            source_body: sourceBody.current,
             images,
             image_descriptions: descriptions,
             commit_rules_accepted: commitRules.hasAccepted(),

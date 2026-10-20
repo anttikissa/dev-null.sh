@@ -15,11 +15,16 @@ final readonly class UpdateCommitEmbedding
     }
 
     /**
-     * Commits are immutable, so the body is embedded once, when the commit is created or backfilled. Failures, such as
-     * timeouts or rate limits, are thrown, so the caller can try again later.
+     * The body is embedded when the commit is created, amended, or backfilled. An embedding of text that was amended
+     * while it was being computed is dropped. Failures, such as timeouts or rate limits, are thrown, so the caller can
+     * try again later.
      */
     public function handle(Commit $commit): void
     {
-        $commit->update(['embedding' => $this->openAI->embed($commit->body)]);
+        $embedding = $this->openAI->embed($commit->body);
+
+        if ($commit->fresh()?->body === $commit->body) {
+            $commit->update(['embedding' => $embedding]);
+        }
     }
 }

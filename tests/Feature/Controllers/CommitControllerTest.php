@@ -12,7 +12,9 @@ use App\Models\Commit;
 use App\Models\CommitImage;
 use App\Models\LinkPreview;
 use App\Models\Notification;
+use App\Models\Poll;
 use App\Models\User;
+use App\Models\UserTimeout;
 use Illuminate\Database\Eloquent\Factories\Sequence;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -1469,4 +1471,98 @@ it('includes the images of a commit, its ancestors and its replies', function ()
             ->has('ancestors.0.images', 1)
             ->has('replies.data.0.images', 1)
             ->missing('commit.images.0.path'));
+});
+
+it('may amend own commit shortly after committing it', function (): void {
+    config(['app.admins' => ['taylorotwell']]);
+    $commit = Commit::factory()->for(User::factory()->create(['username' => 'taylorotwell']))->create(['body' => 'Shiped it']);
+
+    $this->actingAs($commit->user)
+        ->fromRoute('log.show', Log::Following)
+        ->patch(route('commit.update', $commit), ['original_body' => 'Shiped it', 'body' => "Shipped it\n\n\n\nfor real"])
+        ->assertRedirectToRoute('log.show', Log::Following)
+        ->assertInertiaFlash('amended.body', "Shipped it\n\nfor real")
+        ->assertInertiaFlash('amended.body_segments.0.text', "Shipped it\n\nfor real");
+
+    expect($commit->refresh())
+        ->body->toBe("Shipped it\n\nfor real")
+        ->amended_at->not->toBeNull()
+        ->and($commit->revisions()->sole()->body)->toBe('Shiped it');
+});
+
+it('tells authors their amendment is pending review', function (): void {
+    $commit = Commit::factory()->create(['body' => 'Original']);
+
+    $this->actingAs($commit->user)
+        ->patch(route('commit.update', $commit), ['original_body' => 'Original', 'body' => 'Amended'])
+        ->assertInertiaFlash('toast.type', 'info');
+
+    expect($commit->refresh()->status)->toBe(CommitStatus::Pending);
+});
+
+it('may amend the text out of a commit with images', function (): void {
+    config(['app.admins' => ['taylorotwell']]);
+    $commit = Commit::factory()->for(User::factory()->create(['username' => 'taylorotwell']))->create(['body' => 'Look']);
+    CommitImage::factory()->for($commit)->create();
+
+    $this->actingAs($commit->user)
+        ->patch(route('commit.update', $commit), ['original_body' => 'Look', 'body' => ''])
+        ->assertSessionHasNoErrors();
+
+    expect($commit->refresh()->body)->toBe('');
+});
+
+it('may not amend commits of other users', function (): void {
+    $commit = Commit::factory()->create(['body' => 'Mine']);
+
+    $this->actingAs(User::factory()->create())
+        ->patch(route('commit.update', $commit), ['original_body' => 'Mine', 'body' => 'Yours now'])
+        ->assertForbidden();
+
+    expect($commit->refresh()->body)->toBe('Mine');
+});
+
+it('requires authentication to amend a commit', function (): void {
+    $commit = Commit::factory()->create();
+
+    $this->patch(route('commit.update', $commit), ['original_body' => $commit->body, 'body' => 'Amended'])
+        ->assertRedirectToRoute('home');
+});
+
+it('may not amend a commit that can no longer be amended', function (Closure $state, string $error): void {
+    $this->travelTo(now()->startOfSecond());
+    $commit = Commit::factory()->create(['body' => 'Original']);
+    $state($commit);
+
+    $this->actingAs($commit->user)
+        ->patch(route('commit.update', $commit), ['original_body' => 'Original', 'body' => 'Amended'])
+        ->assertSessionHasErrors(['body' => $error]);
+
+    expect($commit->refresh())->body->not->toBe('Amended')->amended_at->toBeNull();
+})->with([
+    'after the 15 minutes' => [fn () => test()->travel(Commit::AMENDABLE_MINUTES)->minutes(), 'The 15-minute amendment window has closed. Your changes were not saved.'],
+    'after a reply, even a deleted one' => [fn (Commit $commit) => Commit::factory()->for($commit, 'parent')->create()->delete(), 'This commit has received a reply or quote and can no longer be amended. Your changes were not saved.'],
+    'after a quote, even a deleted one' => [fn (Commit $commit) => Commit::factory()->create(['quoted_commit_id' => $commit->id])->delete(), 'This commit has received a reply or quote and can no longer be amended. Your changes were not saved.'],
+    'with a poll' => [fn (Commit $commit) => Poll::factory()->for($commit)->create(), 'Commits with a poll cannot be amended.'],
+    'when amended enough times' => [fn (Commit $commit) => $commit->revisions()->createMany(array_fill(0, Commit::MAX_AMENDMENTS, ['body' => 'Before', 'created_at' => now()])), 'This commit has been amended 5 times already.'],
+    'when it changed since the form opened' => [fn (Commit $commit) => $commit->update(['body' => 'Amended in another tab']), 'This commit has changed since you opened the amendment form. Your changes were not saved.'],
+]);
+
+it('may not amend a commit while in timeout', function (): void {
+    $commit = Commit::factory()->create(['body' => 'Original']);
+    UserTimeout::factory()->for($commit->user)->create();
+
+    $this->actingAs($commit->user)->patch(route('commit.update', $commit), ['original_body' => 'Original', 'body' => 'Amended']);
+
+    expect($commit->refresh()->body)->toBe('Original');
+});
+
+it('may not quote text that was amended after it was read', function (): void {
+    $quoted = Commit::factory()->create(['body' => 'Amended']);
+
+    $this->actingAs(User::factory()->create())
+        ->post(route('commit.store'), ['body' => 'Agreed', 'quoted_commit_id' => $quoted->id, 'source_body' => 'Original'])
+        ->assertSessionHasErrors(['body' => 'The commit you are answering has been amended. Reload it to see the new text. Your changes were not saved.']);
+
+    expect($quoted->quotes()->count())->toBe(0);
 });
