@@ -5,13 +5,12 @@ declare(strict_types=1);
 namespace App\Actions;
 
 use Illuminate\Http\UploadedFile;
-use Illuminate\Image\Image as ProcessedImage;
-use Illuminate\Image\ImageException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Image;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Jcupitt\Vips\Exception as VipsException;
+use Jcupitt\Vips\Image;
 
 final readonly class CreateCommitImageFiles
 {
@@ -36,15 +35,16 @@ final readonly class CreateCommitImageFiles
         $files = [];
 
         foreach ($optimized as $position => $image) {
-            $path = $image->storeAs($directory, Str::uuid7()->toString().'.webp');
-            assert(is_string($path));
+            $path = $directory.'/'.Str::uuid7()->toString().'.webp';
+            $stored = Storage::disk()->put($path, $image['bytes']);
+            assert($stored);
 
             DB::afterRollBack(fn (): bool => Storage::disk()->delete($path));
 
             $files[] = [
                 'path' => $path,
-                'width' => $image->width(),
-                'height' => $image->height(),
+                'width' => $image['width'],
+                'height' => $image['height'],
                 'description' => $descriptions[$position] ?? null,
                 'position' => $position,
             ];
@@ -54,9 +54,9 @@ final readonly class CreateCommitImageFiles
     }
 
     /**
-     * GD is used explicitly since, unlike Imagick, it never writes the source's metadata back out.
+     * @return array{bytes: string, width: int, height: int}
      */
-    private function optimize(UploadedFile $file): ProcessedImage
+    private function optimize(UploadedFile $file): array
     {
         $info = @getimagesize($file->getRealPath());
 
@@ -67,19 +67,26 @@ final readonly class CreateCommitImageFiles
             throw $this->invalid();
         }
 
-        $image = Image::fromUpload($file)
-            ->usingGd()
-            ->orient()
-            ->scale(self::MAX_STORED_DIMENSION, self::MAX_STORED_DIMENSION)
-            ->optimize('webp', self::QUALITY);
-
         try {
-            $image->toBytes();
-        } catch (ImageException) {
+            $image = Image::newFromFile($file->getRealPath(), ['fail_on' => 'warning'])->autorot();
+
+            if ($image->getType('icc-profile-data') !== 0) {
+                $image = $image->icc_transform('srgb', ['embedded' => true]);
+            }
+
+            $image = $image->thumbnail_image(self::MAX_STORED_DIMENSION, [
+                'height' => self::MAX_STORED_DIMENSION,
+                'size' => 'down',
+            ]);
+
+            return [
+                'bytes' => $image->writeToBuffer('.webp', ['Q' => self::QUALITY, 'strip' => true]),
+                'width' => $image->width,
+                'height' => $image->height,
+            ];
+        } catch (VipsException) {
             throw $this->invalid();
         }
-
-        return $image;
     }
 
     private function invalid(): ValidationException

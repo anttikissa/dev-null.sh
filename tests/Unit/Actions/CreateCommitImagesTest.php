@@ -47,6 +47,33 @@ it('drops anything smuggled alongside the pixels', function (): void {
     expect(Storage::disk()->get($commit->images()->sole()->path))->not->toContain('<?php');
 });
 
+it('stores colors as srgb', function (bool $displayP3, int $red, int $green, int $blue): void {
+    $source = imagecreatetruecolor(8, 8);
+    imagefill($source, 0, 0, (int) imagecolorallocate($source, 234, 51, 35));
+
+    ob_start();
+    imagepng($source);
+    $contents = (string) ob_get_clean();
+
+    if ($displayP3) {
+        $profile = base64_decode((string) file_get_contents(base_path('tests/Fixtures/display-p3.icc.base64')));
+        $data = "Display P3\0\0".gzcompress($profile);
+        $chunk = pack('N', mb_strlen($data, '8bit')).'iCCP'.$data.pack('N', crc32('iCCP'.$data));
+        $contents = substr_replace($contents, $chunk, 33, 0);
+    }
+
+    $commit = Commit::factory()->create();
+
+    resolve(CreateCommitImages::class)->handle($commit, [UploadedFile::fake()->createWithContent('color.png', $contents)]);
+
+    $color = imagecolorat(imagecreatefromstring((string) Storage::disk()->get($commit->images()->sole()->path)), 4, 4);
+
+    expect([$color >> 16 & 0xFF, $color >> 8 & 0xFF, $color & 0xFF])->toEqualWithDelta([$red, $green, $blue], 5);
+})->with([
+    'converts Display P3 to srgb' => [true, 255, 0, 0],
+    'keeps untagged colors' => [false, 234, 51, 35],
+]);
+
 it('applies the exif orientation of photos and drops their metadata', function (int $orientation, int $width, int $height, string $topLeft): void {
     $source = imagecreatetruecolor(300, 100);
     imagefilledrectangle($source, 0, 0, 149, 99, (int) imagecolorallocate($source, 255, 0, 0));
