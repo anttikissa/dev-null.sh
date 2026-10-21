@@ -231,6 +231,8 @@ Sources: [stash hook](resources/js/hooks/use-stash.ts), [image storage](resource
 
 Attach up to **three JPEG, PNG, or WebP images** to a commit or reply. Each image can be at most **10 MB** and **6,000 pixels in either dimension**. Add an image description of up to **1,000 characters** for accessibility. Add images with the picker, by pasting, or by dropping them on the composer. Every image is re-encoded to WebP, at most 1,600 pixels on its longest side, which strips metadata such as location. Images can be posted without accompanying text on the web and in the app. Images on a pending commit are visible only to its author and admins. Image attachments and a poll cannot be combined in the same commit. Open an attached photo to view it in the photo viewer, move through the commit's images, read its description, or download it. Terminal commits can attach images without descriptions, and signed API commits with them.
 
+While writing a draft, click an attached image's thumbnail to open it in the photo viewer without posting it. You can zoom and move between the draft's images; closing the viewer returns to the draft.
+
 Sources: [image picker](resources/js/components/commit-image-picker.tsx), [image limits](app/Actions/CreateCommitImages.php), [image processing](app/Actions/CreateImageFiles.php), [attachment validation](app/Http/Requests/CreateCommitRequest.php), [photo controller](app/Http/Controllers/CommitPhotoController.php).
 
 ### Links, link cards, and embedded players

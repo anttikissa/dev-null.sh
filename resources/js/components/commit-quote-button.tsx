@@ -170,7 +170,9 @@ function QuoteComposer({
         <DialogContent
             onEscapeKeyDown={(event) => {
                 if (
-                    document.querySelector('[data-mention-suggestions]') ||
+                    document.querySelector(
+                        '[data-mention-suggestions], .yarl__root',
+                    ) ||
                     (event.target instanceof Element &&
                         event.target.closest('[data-composer-preview]'))
                 ) {
@@ -180,7 +182,9 @@ function QuoteComposer({
             onInteractOutside={(event) => {
                 if (
                     event.target instanceof Element &&
-                    event.target.closest('[data-mention-suggestions]')
+                    event.target.closest(
+                        '[data-mention-suggestions], .yarl__root',
+                    )
                 ) {
                     event.preventDefault();
                 }

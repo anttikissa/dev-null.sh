@@ -1,6 +1,7 @@
 import { ImagePlus, X } from 'lucide-react';
 import { useId, useRef, useState } from 'react';
 import { ActionTooltip } from '@/components/action-tooltip';
+import { ImageViewer } from '@/components/image-viewer';
 import { Button } from '@/components/ui/button';
 import {
     acceptedImageTypes,
@@ -164,6 +165,7 @@ export function ImagePickerPreviews({
 }) {
     const id = useId();
     const [describedIndex, setDescribedIndex] = useState<number | null>(null);
+    const [viewedIndex, setViewedIndex] = useState<number | null>(null);
     const urls = images.map(objectUrlFor);
 
     if (images.length === 0) {
@@ -192,11 +194,18 @@ export function ImagePickerPreviews({
 
                     return (
                         <li key={url} className="relative">
-                            <img
-                                src={url}
-                                alt={`Attached image ${index + 1}`}
-                                className="size-20 rounded-md border bg-muted object-cover"
-                            />
+                            <button
+                                type="button"
+                                onClick={() => setViewedIndex(index)}
+                                aria-label={`Open image ${index + 1}`}
+                                className="block cursor-pointer rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                            >
+                                <img
+                                    src={url}
+                                    alt={`Attached image ${index + 1}`}
+                                    className="size-20 rounded-md border bg-muted object-cover"
+                                />
+                            </button>
                             <button
                                 type="button"
                                 onClick={() => {
@@ -237,6 +246,17 @@ export function ImagePickerPreviews({
                     );
                 })}
             </ul>
+            <ImageViewer
+                images={urls.map((url, index) => ({
+                    id: url,
+                    url,
+                    description: descriptions[index]?.trim() || null,
+                }))}
+                index={viewedIndex}
+                onView={setViewedIndex}
+                onClose={() => setViewedIndex(null)}
+                downloadUrl={(image) => image.url}
+            />
 
             {editing !== null && (
                 <div
